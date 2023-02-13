@@ -1,0 +1,235 @@
+#!/bin/bash
+# douglas.diaz@bcr.gob.sv
+# Feb-2023
+
+readonly NMS=172.16.99.144
+readonly HOSTNAME=`hostname`
+readonly CURL_PARAMS="-G --connect-timeout 5 --retry 3"
+
+
+date > /tmp/na_alert.rpt
+date > /tmp/boot_alerts.rpt
+date > /tmp/phy_alerts.rpt
+date > /tmp/cpu_alerts.rpt
+date > /tmp/mem_alerts.rpt
+date > /tmp/dsk_alerts.rpt
+date > /tmp/io_alerts.rpt
+date > /tmp/time_alerts.rpt
+date > /tmp/vm_alerts.rpt
+
+let tS=`wc -l < $1`
+let naAlmCtr=bootAlmCtr=phyAlmCtr=cpuAlmCtr=memAlmCtr=dskAlmCtr=ioAlmCtr=timeAlmCtr=vmAlmCtr=0
+
+while IFS=  read -r line; do
+	myCred=( $line )
+	#echo  ${myCred[0]}
+	#echo  ${myCred[1]}
+	#echo  ${myCred[2]}
+
+	nc -w 1 -z "${myCred[3]}" 22
+	if [ $? -ne 0  ]; then
+		echo "${myCred[3]} ${myCred[0]} unreachable" >> /tmp/na_alerts.rpt
+		(( naAlmCtr=naAlmCtr+1 ))
+		continue
+	fi
+
+	echo "# ${myCred[3]} ${myCred[0]} ========================================"
+	OS_type=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'echo $OSTYPE'`
+	hostName=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'hostname'`
+
+
+	# Common checks ######################################################################################################################
+	cmdOut=`sshpass -p "${myCred[2]}" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 "${myCred[1]}"@"${myCred[3]}" 'uptime 2>/dev/null'`
+	echo "$cmdOut" | grep up | grep -q day
+	exitStat=$?
+	if [ -n "$cmdOut" ] && [ "$exitStat" -ne 0 ]; then
+		echo "# ${myCred[3]} ${myCred[0]} uptime ========================================" >> /tmp/boot_alerts.rpt
+		echo "$cmdOut" >> /tmp/boot_alerts.rpt
+
+		(( bootAlmCtr=bootAlmCtr+1 ))
+		bootAlmLst="$bootAlmLst, $hostName"
+
+	fi
+
+	cmdOut=`sshpass -p "${myCred[2]}" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 "${myCred[1]}"@"${myCred[3]}" 'df -k'`
+	echo "$cmdOut" | grep -Ev 'loop|snap|docker|media' | grep -Eq '100%|9[0-9]%|[8][5-9]%'
+	exitStat=$?
+	if [ -n "$cmdOut" ] && [ "$exitStat" -eq 0 ]; then
+		echo "# ${myCred[3]} ${myCred[0]} df ========================================" >> /tmp/dsk_alerts.rpt
+		echo "$cmdOut" >> /tmp/dsk_alerts.rpt
+
+		(( dskAlmCtr=dskAlmCtr+1 ))
+		dskAlmLst="$dskAlmLst, $hostName"
+	fi
+
+
+	# Specific check per OS type ##############################################################################################################
+	if [[ "$OS_type" == "linux-gnu"* ]]; then
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'top -b -n 1 | grep Cpu'`
+		if [ -n "$cmdOut" ]; then
+			idle=`echo "$cmdOut" | awk '{ print $8 }' | awk -F[.,] '{ print $1 }'`
+			wio=`echo "$cmdOut" | awk '{ print $10 }' | awk -F[.,] '{ print $1 }'`
+
+			if [ "$wio" -ge 25 ] || [ "$idle" -le 15 ]; then
+				echo "# ${myCred[3]} ${myCred[0]} CPU ========================================" >> /tmp/cpu_alerts.rpt
+				echo "$cmdOut" >> /tmp/cpu_alerts.rpt
+
+				(( cpuAlmCtr=cpuAlmCtr+1 ))
+				cpuAlmLst="$cpuAlmLst, $hostName"
+			fi
+		fi
+
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "grep -w OOM /var/log/syslog /var/log/messages 2>/dev/null"`
+		if [ -n "$cmdOut" ]; then
+			echo "# ${myCred[3]} ${myCred[0]} OOM ========================================" >> /tmp/mem_alerts.rpt
+			echo "$cmdOut" >> /tmp/mem_alerts.rpt
+
+			(( memAlmCtr=memAlmCtr+1 ))
+			memAlmLst="$memAlmLst, $hostName"
+		fi
+
+	elif [[ "$OS_type" == "solaris"* ]]; then
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo fmadm faulty 2>/dev/null"`
+                if [ -n "$cmdOut" ] && [ -n "$cmdOut" ]; then
+                        echo "# ${myCred[3]} ${myCred[0]} fdadm ========================================" >> /tmp/phy_alerts.rpt
+                        echo "$cmdOut" >> /tmp/phy_alerts.rpt
+
+			(( phyAlmCtr=phyAlmCtr+1 ))
+			phyAlmLst="$phyAlmLst, $hostName"
+                fi
+
+		# Adapted from: https://exchange.nagios.org/directory/Plugins/Operating-Systems/Solaris/check_solaris_cpu_usage/details
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} '/usr/bin/mpstat -a 3 2'`
+		idle=`echo "$cmdOut" | tail -1 | awk '{ print $16 }'`
+
+		if [ -n "$cmdOut" ] && [ "$idle" -le 15 ]; then
+			echo "# ${myCred[3]} ${myCred[0]} mpstat ========================================" >> /tmp/cpu_alerts.rpt
+			echo "$cmdOut" >> /tmp/cpu_alerts.rpt
+			(( cpuAlmCtr=cpuAlmCtr+1 ))
+			cpuAlmLst="$cpuAlmLst, $hostName"
+		fi
+
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "echo '::memstat' | sudo mdb -k"`
+		echo "$cmdOut" | grep -E 'freelist|Free  ' | grep -q ' [0-9]%'
+		retVal=$?
+		if [ -n "$cmdOut" ] && [ $retVal -eq 0 ]; then
+			echo "# ${myCred[3]} ${myCred[0]} mdb ========================================" >> /tmp/mem_alerts.rpt
+			echo "$cmdOut" >> /tmp/mem_alerts.rpt
+
+			(( memAlmCtr=memAlmCtr+1 ))
+			memAlmLst="$memAlmLst, $hostName"
+		fi
+
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo iostat -zxn"`
+		if [ -n "$cmdOut" ]; then
+			echo "$cmdOut" | egrep -q '100%|9[0-9]%|[8][5-9]%'
+
+			if [ $? -eq 0 ]; then
+                		echo "# ${myCred[3]} ${myCred[0]} iostat ========================================" >> /tmp/io_alerts.rpt
+	        	        echo "$cmdOut" | egrep '100%|9[0-9]%|[8][5-9]%' >> /tmp/io_alerts.rpt
+
+				(( ioAlmCtr=ioAlmCtr+1 ))
+				ioAlmLst="$ioAlmLst, $hostName"
+			fi
+	        fi
+		# According to Sun, NTP can only sync time if it is off by no more than 17 minutes.  Furthermore, adjusting time being off by seconds will take several minutes because NTP is architected to slowly adjust to the NTP master's time. 
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "/usr/sbin/ntpq -c peers"`
+		if [ -z "$cmdOut" ]; then
+			echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+			echo 'NTP peers not found/setup here!' >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+			(( timeAlmCtr=timeAlmCtr+1 ))
+			timeAlmLst="$timeAlmLst, $hostName"
+		else
+			offSet=`echo "$cmdOut" | tail -n +3 | awk '/\*/ { print $9 }'`
+			if [ -z "$offSet" ]; then
+				echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+				echo 'NTP server not eligible here' >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+				(( timeAlmCtr=timeAlmCtr+1 ))
+				timeAlmLst="$timeAlmLst, $hostName"
+			else
+				if (( $(echo "$offSet < -1.0" | bc -l) )) || (( $(echo "$offSet > 1.0" | bc -l) )); then
+					echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+					echo "$cmdOut" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+
+					(( timeAlmCtr=timeAlmCtr+1 ))
+					timeAlmLst="$timeAlmLst, $hostName"
+				fi
+			fi
+		fi
+
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo ldm list 2> /dev/null"`
+                if [ -n "$cmdOut" ]; then
+			echo "$cmdOut" | grep -Eqv 'STATE|active'
+			exitStat=$?
+
+			if [ "$exitStat" -eq 0 ]; then
+	                        echo "# ${myCred[3]} ${myCred[0]} ldm ========================================" >> /tmp/vm_alerts.rpt
+        	                echo "$cmdOut" >> /tmp/vm_alerts.rpt
+
+				(( vmAlmCtr=vmAlmCtr+1 ))
+				vmAlmLst="$vmAlmLst, $hostName"
+			fi
+                fi
+
+
+	elif [[ "$OS_type" == "aix"* ]]; then
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sar -u 1"`
+		if [ -z "$cmdOut" ]; then
+			wio=`echo "$cmdOut" | awk '{ print $4 }'`
+			idle=`echo "$cmdOut" | awk '{ print $5 }'`
+
+			if [ "$wio" > 25  ] || [ "$idle" < 15  ]; then
+				echo "# ${myCred[3]} ${myCred[0]} sar ========================================" >> /tmp/cpu_alerts.rpt
+				echo "$cmdOut" >> /tmp/cpu_alerts.rpt
+
+				(( cpuAlmCtr=cpuAlmCtr+1 ))
+			fi
+		fi
+
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "svmon -G"`
+		memSize=`echo "$cmdOut" | grep memory | tr -s ' ' | cut -d ' ' -f 2`
+		mInUse=`echo "$cmdOut" | grep 'in use' | tr -s ' ' | cut -d ' ' -f 3`
+		if (( $(echo "$mInUse / $memSize > 80" | bc -l) )); then
+			echo "# ${myCred[3]} ${myCred[0]} svmon ========================================" >> /tmp/mem_alerts.rpt
+			echo "$cmdOut" >> /tmp/mem_alerts.rpt
+			echo "$cmdOut2" >> /tmp/mem_alerts.rpt
+
+			(( memAlmCtr=memAlmCtr+1 ))
+			memAlmLst="$memAlmLst, $hostName"
+		fi
+
+		#cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'lparstat -i |egrep -i "Online|Maximum" |grep -i Memory'`
+	fi
+done < $1
+
+
+#for i in $(ls -1 /tmp/*alerts.rpt); do
+#done
+
+MSG=".: $(date +%Y-%m-%d_%H) INFRA STATUS SUMMARY: $1 :."
+
+read -r -d '' DAT << EOM
+Total servers checked: $tS
+
+--
+
+Unreachable: $naAlmCtr
+Uptime alerts (OS reboot): $bootAlmCtr -- $bootAlmLst
+Physical alerts: $phyAlmCtr -- $phyAlmLst;
+High CPU usage alerts: $cpuAlmCtr -- $cpuALmLst
+High mem usage alerts: $memAlmCtr -- $memAlmLst
+Low free disk space alerts: $dskAlmCtr -- $dskAlmLst
+I/O performance alerts: $ioAlmCtr -- $ioAlmLst
+Time sync alerts: $timeAlmCtr -- $timeAlmLst
+VM (LDOM/LPAR) status alerts: $vmAlmCtr -- $vmAlmLst
+
+More info: http://172.16.99.144/infra/$(date +%Y-%m-%d_%H)/
+EOM
+
+echo "$DAT"
+
+#[ -z "$DAT" ] || $DAT='...'
+#[ -z "$MSG" ] || curl $CURL_PARAMS --data-urlencode "from=$HOSTNAME" --data-urlencode "msg=$MSG" --data-urlencode "data=$DAT" "http://$NMS/tbot/tbot.php"
+
+exit 0
+
