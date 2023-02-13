@@ -1,0 +1,71 @@
+#!/usr/bin/bash
+# douglas.diaz@
+# Mar-2022
+# Sep-2022
+# Feb-2023
+
+readonly myNMS=172.20.252.44 # <-- This is a NAT for 172.16.99.144
+readonly myHostName=`hostname`
+readonly myParams="-s -G --connect-timeout 5 --retry 3"
+
+readonly myStuck=1
+
+declare -a a_Log
+declare -a a_LogID
+declare -a a_Rex
+declare -a a_RexID
+
+a_Log[1]=/u01/app/oracle/product/12.2.0/fmw/user_projects/domains/sv_domain/servers/sv_ach_1/logs/sv_ach_1.log
+a_LogID[1]=sv_ach
+a_Log[2]=/u01/app/oracle/product/12.2.0/fmw/user_projects/domains/sv_domain/servers/sv_po_1/logs/sv_po_1.log
+a_LogID[2]=sv_po
+a_Log[2]=/u01/app/oracle/product/12.2.0/fmw/user_projects/domains/sv_domain/montran.log
+a_logID[2]=mon
+
+
+a_Rex[1]='BEA-000337. ..STUCK.*busy for "[7-9][0-9][0-9]'
+a_RexID[1]='STUCK'
+
+a_Rex[2]='Setting server state to FAILED'
+a_RexID[2]='FAILED'
+
+a_Rex[3]='Cannot find matching SettlementRequest'
+a_RexID[3]='SettlementRequest'
+
+a_Rex[4]='Error invoking'
+a_RexID[4]='invoking'
+
+
+if [ "${#a_Log[@]}" -ne "${#a_LogID[@]}" ]; then
+        echo 'Wrong array size for log'
+        exit 1
+fi
+if [ "${#a_Rex[@]}" -ne "${#a_RexID[@]}" ]; then
+        echo 'Wrong array size for regexp'
+        exit 1
+fi
+
+i=1
+for myL in "${a_Log[@]}"; do
+        j=1
+        for myR in "${a_Rex[@]}"; do
+                prevCntF="/tmp/${a_LogID[$i]}_${a_RexID[$j]}.cnt"
+                prevCount=$(<$prevCntF)
+
+                cmdOut=`grep -c "$myR" $myL`
+                if [ "$cmdOut" -ne "$prevCount" ] && [ "$cmdOut" -ge $myStuck ]; then
+                        MSG="$myR registrado en $myL @ $(date)."
+                        DATA=`grep "$myR" $myL | tail -$myStuck`
+
+                        [ -z "$MSG" ] || curl $myParams --data-urlencode "from=$myHostName" --data-urlencode "msg=$MSG" --data-urlencode "data=$DATA" "http://$myNMS/tbot/tbot.php"
+                fi
+
+                echo "$cmdOut" > "$prevCntF"
+
+                let j=j+1
+        done
+
+        let i=i+1
+done
+
+exit 0
