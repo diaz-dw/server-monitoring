@@ -7,7 +7,7 @@ readonly HOSTNAME=`hostname`
 readonly CURL_PARAMS="-G --connect-timeout 5 --retry 3"
 
 
-date > /tmp/na_alert.rpt
+date > /tmp/na_alerts.rpt
 date > /tmp/boot_alerts.rpt
 date > /tmp/phy_alerts.rpt
 date > /tmp/cpu_alerts.rpt
@@ -213,9 +213,9 @@ Total servers checked: $tS
 
 --
 
-Unreachable: $naAlmCtr
+Unreachable: $naAlmCtr -- $naAlmLst
 Uptime alerts (OS reboot): $bootAlmCtr -- $bootAlmLst
-Physical alerts: $phyAlmCtr -- $phyAlmLst;
+Physical alerts: $phyAlmCtr -- $phyAlmLst
 High CPU usage alerts: $cpuAlmCtr -- $cpuALmLst
 High mem usage alerts: $memAlmCtr -- $memAlmLst
 Low free disk space alerts: $dskAlmCtr -- $dskAlmLst
@@ -226,10 +226,10 @@ VM (LDOM/LPAR) status alerts: $vmAlmCtr -- $vmAlmLst
 More info: http://172.16.99.144/infra/$(date +%Y-%m-%d_%H)/
 EOM
 
-echo "$DAT"
+#echo "$DAT"
 
 #[ -z "$DAT" ] || $DAT='...'
-#[ -z "$MSG" ] || curl $CURL_PARAMS --data-urlencode "from=$HOSTNAME" --data-urlencode "msg=$MSG" --data-urlencode "data=$DAT" "http://$NMS/tbot/tbot.php"
+[ -z "$MSG" ] || curl $CURL_PARAMS --data-urlencode "from=$HOSTNAME" --data-urlencode "msg=$MSG" --data-urlencode "data=$DAT" "http://$NMS/tbot/tbot.php"
 
 exit 0
 
