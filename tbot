@@ -1,0 +1,35 @@
+#!/bin/bash
+# douglas.diaz@
+# Jan 11th, 2022
+# Mar 3rd, 2022
+# June 29th, 2022: group chat ID changed
+
+if [ $# -lt 2 ]; then
+	exit 1
+fi
+
+if [ -z "$2" ]; then
+	exit 2
+fi
+
+# Redirect stdout and stderr to file
+# Preserve old descriptors
+exec 3>&1 4>&2
+# Open STDOUT as $LOG_FILE file for read and write.
+exec 1>>/var/log/tbot.log
+# Redirect STDERR to STDOUT
+exec 2>&1
+
+TOKEN=""
+ID="-1001735191133"
+
+MENSAJE="<b>$1</b>: $2%0A%0A<code>$3</code>"
+
+URL="https://api.telegram.org/bot$TOKEN/sendMessage"
+
+echo -n "$(date) -- "
+
+# https://medium.com/@trevin/using-curl-to-send-a-message-to-telegram-with-bolding-and-newlines-d0ac77b09608
+curl -s -X POST -d parse_mode=HTML -d chat_id=$ID -d text="$MENSAJE" $URL
+
+echo

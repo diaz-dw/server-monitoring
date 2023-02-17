@@ -1,0 +1,21 @@
+#!/bin/bash
+
+[ -z "$1" ] && exit 1
+
+
+readonly NMS=localhost
+readonly HOSTNAME=`hostname`
+readonly CURL_PARAMS="-G --connect-timeout 5 --retry 3"
+
+for i in $(cat $1 | grep -v '#'); do
+	curl -s --head --connect-timeout 5 $i | grep "200 OK" > /dev/null
+
+	if [ $? -ne 0 ];then
+		MSG="The WS at $i did not respond in the time expected @renlo1 @ $(date)"
+	fi
+
+	[ -z "$DAT" ] || $DAT='...'
+	[ -z "$MSG" ] || curl $CURL_PARAMS --data-urlencode "from=$HOSTNAME" --data-urlencode "msg=$MSG" --data-urlencode "data=$DAT" "http://$NMS/tbot/tbot.php"
+	#echo $MSG
+	unset MSG
+done
