@@ -49,7 +49,7 @@ while IFS=  read -r line; do
 		echo "$cmdOut" >> /tmp/boot_alerts.rpt
 
 		(( bootAlmCtr=bootAlmCtr+1 ))
-		bootAlmLst="$bootAlmLst, $hostName"
+		bootAlmLst="$hostName, $bootAlmLst"
 
 	fi
 
@@ -61,17 +61,17 @@ while IFS=  read -r line; do
 		echo "$cmdOut" >> /tmp/dsk_alerts.rpt
 
 		(( dskAlmCtr=dskAlmCtr+1 ))
-		dskAlmLst="$dskAlmLst, $hostName"
+		dskAlmLst="$hostName, $dskAlmLst"
 	fi
 
         # journalctl -p crit
-        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep 'kernel|crit|OOM|Out of memory|Killed process' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm'"`
+        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep 'kernel|crit|OOM|Out of memory|Killed process|segfault' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm'"`
         if [ -n "$cmdOut" ]; then
                  echo "# ${myCred[3]} ${myCred[0]} system logs ========================================" >> /tmp/err_alerts.rpt
                  echo "$cmdOut" >> /tmp/err_alerts.rpt
 
                  (( errAlmCtr=errAlmCtr+1 ))
-                 errAlmLst="$errAlmLst, $hostName"
+                 errAlmLst="$hostName, $errAlmLst"
         fi
 
 
@@ -87,7 +87,7 @@ while IFS=  read -r line; do
 				echo "$cmdOut" >> /tmp/cpu_alerts.rpt
 
 				(( cpuAlmCtr=cpuAlmCtr+1 ))
-				cpuAlmLst="$cpuAlmLst, $hostName"
+				cpuAlmLst="$hostName, $cpuAlmLst"
 			fi
 		fi
 
@@ -99,7 +99,7 @@ while IFS=  read -r line; do
                         echo "$cmdOut" >> /tmp/phy_alerts.rpt
 
 			(( phyAlmCtr=phyAlmCtr+1 ))
-			phyAlmLst="$phyAlmLst, $hostName"
+			phyAlmLst="$hostName, $phyAlmLst"
                 fi
 
 		# Adapted from: https://exchange.nagios.org/directory/Plugins/Operating-Systems/Solaris/check_solaris_cpu_usage/details
@@ -110,7 +110,7 @@ while IFS=  read -r line; do
 			echo "# ${myCred[3]} ${myCred[0]} mpstat ========================================" >> /tmp/cpu_alerts.rpt
 			echo "$cmdOut" >> /tmp/cpu_alerts.rpt
 			(( cpuAlmCtr=cpuAlmCtr+1 ))
-			cpuAlmLst="$cpuAlmLst, $hostName"
+			cpuAlmLst="$hostName, $cpuAlmLst"
 		fi
 
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "echo '::memstat' | sudo mdb -k"`
@@ -121,7 +121,7 @@ while IFS=  read -r line; do
 			echo "$cmdOut" >> /tmp/mem_alerts.rpt
 
 			(( memAlmCtr=memAlmCtr+1 ))
-			memAlmLst="$memAlmLst, $hostName"
+			memAlmLst="$hostName, $memAlmLst"
 		fi
 
 		# fmstat -s -m cpumem-retire
@@ -137,23 +137,24 @@ while IFS=  read -r line; do
 	        	        echo "$cmdOut" | egrep '100%|9[0-9]%|[8][5-9]%' >> /tmp/io_alerts.rpt
 
 				(( ioAlmCtr=ioAlmCtr+1 ))
-				ioAlmLst="$ioAlmLst, $hostName"
+				ioAlmLst="$hostName, $ioAlmLst"
 			fi
 	        fi
+
 		# According to Sun, NTP can only sync time if it is off by no more than 17 minutes.  Furthermore, adjusting time being off by seconds will take several minutes because NTP is architected to slowly adjust to the NTP master's time. 
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "/usr/sbin/ntpq -c peers"`
 		if [ -z "$cmdOut" ]; then
 			echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
 			echo 'NTP peers not found/setup here!' >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
 			(( timeAlmCtr=timeAlmCtr+1 ))
-			timeAlmLst="$timeAlmLst, $hostName"
+			timeAlmLst="$hostName, $timeAlmLst"
 		else
 			offSet=`echo "$cmdOut" | tail -n +3 | awk '/\*/ { print $9 }'`
 			if [ -z "$offSet" ]; then
 				echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
 				echo 'NTP server not eligible here' >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
 				(( timeAlmCtr=timeAlmCtr+1 ))
-				timeAlmLst="$timeAlmLst, $hostName"
+				timeAlmLst="$hostName, $timeAlmLst"
 			else
 				# Max time difference allowed by a DB RAC node> 30 secs
 				if (( $(echo "${offSet//+} < -10.0" | bc -l) )) || (( $(echo "${offSet//+} > 10.0" | bc -l) )); then
@@ -161,7 +162,7 @@ while IFS=  read -r line; do
 					echo "$cmdOut" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
 
 					(( timeAlmCtr=timeAlmCtr+1 ))
-					timeAlmLst="$timeAlmLst, $hostName"
+					timeAlmLst="$hostName, $timeAlmLst"
 				fi
 			fi
 		fi
@@ -176,12 +177,22 @@ while IFS=  read -r line; do
         	                echo "$cmdOut" >> /tmp/vm_alerts.rpt
 
 				(( vmAlmCtr=vmAlmCtr+1 ))
-				vmAlmLst="$vmAlmLst, $hostName"
+				vmAlmLst="$hostName, $vmAlmLst"
 			fi
                 fi
 
 
 	elif [[ "$OS_type" == "aix"* ]]; then
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'errpt -a | grep LABEL'`
+                if [ -n "$cmdOut" ]; then
+                        echo "# ${myCred[3]} ${myCred[0]} errpt ========================================" >> /tmp/phy_alerts.rpt
+                        echo "$cmdOut" >> /tmp/phy_alerts.rpt
+
+                        (( phyAlmCtr=phyAlmCtr+1 ))
+                        phyAlmLst="$hostName, $phyAlmLst"
+                fi
+
+
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sar -u 1"`
 		if [ -z "$cmdOut" ]; then
 			wio=`echo "$cmdOut" | awk '{ print $4 }'`
@@ -203,7 +214,7 @@ while IFS=  read -r line; do
 			echo "$cmdOut" >> /tmp/mem_alerts.rpt
 
 			(( memAlmCtr=memAlmCtr+1 ))
-			memAlmLst="$memAlmLst, $hostName"
+			memAlmLst="$hostName, $memAlmLst"
 		fi
 
 		# check the health of paging space
@@ -214,7 +225,7 @@ while IFS=  read -r line; do
                         echo "$cmdOut" >> /tmp/pg_alerts.rpt
 
                         (( pgAlmCtr=pgAlmCtr+1 ))
-                        pgAlmLst="$pgAlmLst, $hostName"
+                        pgAlmLst="$hostName, $pgAlmLst"
                 fi
 
                 cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "iostat"`
@@ -227,29 +238,46 @@ while IFS=  read -r line; do
                                 echo "$cmdOut" | egrep '100%|9[0-9]%|[8][5-9]%' >> /tmp/io_alerts.rpt
 
                                 (( ioAlmCtr=ioAlmCtr+1 ))
-                                ioAlmLst="$ioAlmLst, $hostName"
+                                ioAlmLst="$hostName, $ioAlmLst"
                         fi
                 fi
-
-                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'errpt -a | grep LABEL'`
-                if [ -n "$cmdOut" ]; then
-                        echo "# ${myCred[3]} ${myCred[0]} errpt ========================================" >> /tmp/phy_alerts.rpt
-                        echo "$cmdOut" >> /tmp/phy_alerts.rpt
-
-                        (( phyAlmCtr=phyAlmCtr+1 ))
-                        phyAlmLst="$phyAlmLst, $hostName"
-                fi
-
 
 		# lsvg -o | lsvg -il | grep -i stale
                 cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'lsvg -o | lsvg -il | grep -i stale'`
                 if [ -n "$cmdOut" ]; then
-                        echo "# ${myCred[3]} ${myCred[0]} lsvg ========================================" >> /tmp/err_alerts.rpt
+                        echo "# ${myCred[3]} ${myCred[0]} lsvg ========================================" >> /tmp/dsk_alerts.rpt
                         echo "$cmdOut" >> /tmp/dsk_alerts.rpt
 
                         (( dskAlmCtr=dskAlmCtr+1 ))
-                        dskAlmLst="$dskAlmLst, $hostName"
+                        dskAlmLst="$hostName, $dskAlmLst"
                 fi
+
+                # According to Sun, NTP can only sync time if it is off by no more than 17 minutes.  Furthermore, adjusting time being off by seconds will take several minutes because NTP is architected to slowly adjust to the NTP master's time.
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "/usr/sbin/ntpq -c peers"`
+                if [ -z "$cmdOut" ]; then
+                        echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+                        echo 'NTP peers not found/setup here!' >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+                        (( timeAlmCtr=timeAlmCtr+1 ))
+                        timeAlmLst="$hostName, $timeAlmLst"
+                else
+                        offSet=`echo "$cmdOut" | tail -n +3 | awk '/\*/ { print $9 }'`
+                        if [ -z "$offSet" ]; then
+                                echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+                                echo 'NTP server not eligible here' >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+                                (( timeAlmCtr=timeAlmCtr+1 ))
+                                timeAlmLst="$hostName, $timeAlmLst"
+                        else
+                                # Max time difference allowed by a DB RAC node> 30 secs
+                                if (( $(echo "${offSet//+} < -10.0" | bc -l) )) || (( $(echo "${offSet//+} > 10.0" | bc -l) )); then
+                                        echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+                                        echo "$cmdOut" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
+
+                                        (( timeAlmCtr=timeAlmCtr+1 ))
+                                        timeAlmLst="$hostName, $timeAlmLst"
+                                fi
+                        fi
+                fi
+
 
 		#cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'lparstat -i |egrep -i "Online|Maximum" |grep -i Memory'`
 		#
@@ -272,12 +300,12 @@ Uptime alerts (OS reboot): $bootAlmCtr -- $bootAlmLst
 Physical/hw alerts: $phyAlmCtr -- $phyAlmLst
 High CPU usage alerts: $cpuAlmCtr -- $cpuAlmLst
 High mem usage alerts: $memAlmCtr -- $memAlmLst
-Low free disk space alerts: $dskAlmCtr -- $dskAlmLst
+Low free disk/vol/storage space alerts: $dskAlmCtr -- $dskAlmLst
 I/O performance alerts: $ioAlmCtr -- $ioAlmLst
 Time sync alerts: $timeAlmCtr -- $timeAlmLst
 VM (LDOM/LPAR) status alerts: $vmAlmCtr -- $vmAlmLst
 Page usage alerts: $pgAlmCtr -- $pgAlmLst
-System/kernel errors: $errAlmCtr -- $errAlmLst
+System/kernel logged errors: $errAlmCtr -- $errAlmLst
 
 More info: http://172.16.99.144/infra/$(date +%Y-%m-%d_%H)/
 EOM
