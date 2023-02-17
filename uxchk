@@ -16,9 +16,11 @@ date > /tmp/dsk_alerts.rpt
 date > /tmp/io_alerts.rpt
 date > /tmp/time_alerts.rpt
 date > /tmp/vm_alerts.rpt
+date > /tmp/pg_alerts.rpt
+date > /tmp/err_alerts.rpt 
 
 let tS=`wc -l < $1`
-let naAlmCtr=bootAlmCtr=phyAlmCtr=cpuAlmCtr=memAlmCtr=dskAlmCtr=ioAlmCtr=timeAlmCtr=vmAlmCtr=0
+let naAlmCtr=bootAlmCtr=phyAlmCtr=cpuAlmCtr=memAlmCtr=dskAlmCtr=ioAlmCtr=timeAlmCtr=vmAlmCtr=pgAlmctr=errAlmCtr=0
 
 while IFS=  read -r line; do
 	myCred=( $line )
@@ -26,7 +28,7 @@ while IFS=  read -r line; do
 	#echo  ${myCred[1]}
 	#echo  ${myCred[2]}
 
-	nc -w 1 -z "${myCred[3]}" 22
+	nc -w 3 -z "${myCred[3]}" 22
 	if [ $? -ne 0  ]; then
 		echo "${myCred[3]} ${myCred[0]} unreachable" >> /tmp/na_alerts.rpt
 		(( naAlmCtr=naAlmCtr+1 ))
@@ -51,7 +53,7 @@ while IFS=  read -r line; do
 
 	fi
 
-	cmdOut=`sshpass -p "${myCred[2]}" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 "${myCred[1]}"@"${myCred[3]}" 'df -k'`
+	cmdOut=`sshpass -p "${myCred[2]}" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 "${myCred[1]}"@"${myCred[3]}" 'df -k 2>/dev/null'`
 	echo "$cmdOut" | grep -Ev 'loop|snap|docker|media' | grep -Eq '100%|9[0-9]%|[8][5-9]%'
 	exitStat=$?
 	if [ -n "$cmdOut" ] && [ "$exitStat" -eq 0 ]; then
@@ -62,16 +64,26 @@ while IFS=  read -r line; do
 		dskAlmLst="$dskAlmLst, $hostName"
 	fi
 
+        # journalctl -p crit
+        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep 'kernel|crit|OOM|Out of memory|Killed process' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm'"`
+        if [ -n "$cmdOut" ]; then
+                 echo "# ${myCred[3]} ${myCred[0]} system logs ========================================" >> /tmp/err_alerts.rpt
+                 echo "$cmdOut" >> /tmp/err_alerts.rpt
+
+                 (( errAlmCtr=errAlmCtr+1 ))
+                 errAlmLst="$errAlmLst, $hostName"
+        fi
+
 
 	# Specific check per OS type ##############################################################################################################
 	if [[ "$OS_type" == "linux-gnu"* ]]; then
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'top -b -n 1 | grep Cpu'`
 		if [ -n "$cmdOut" ]; then
-			idle=`echo "$cmdOut" | awk '{ print $8 }' | awk -F[.,] '{ print $1 }'`
-			wio=`echo "$cmdOut" | awk '{ print $10 }' | awk -F[.,] '{ print $1 }'`
+			idle=`echo "$cmdOut" | awk -F',' '{ print $4 }' | awk '{ print $1 }' | awk -F[.,] '{ print $1 }'`
+			wio=`echo "$cmdOut" | awk -F',' '{ print $5 }' | awk '{ print $1 }' | awk -F[.,] '{ print $1 }'`
 
 			if [ "$wio" -ge 25 ] || [ "$idle" -le 15 ]; then
-				echo "# ${myCred[3]} ${myCred[0]} CPU ========================================" >> /tmp/cpu_alerts.rpt
+				echo "# ${myCred[3]} ${myCred[0]} CPU idle: $idle wio: $wio ========================================" >> /tmp/cpu_alerts.rpt
 				echo "$cmdOut" >> /tmp/cpu_alerts.rpt
 
 				(( cpuAlmCtr=cpuAlmCtr+1 ))
@@ -79,17 +91,9 @@ while IFS=  read -r line; do
 			fi
 		fi
 
-		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "grep -w OOM /var/log/syslog /var/log/messages 2>/dev/null"`
-		if [ -n "$cmdOut" ]; then
-			echo "# ${myCred[3]} ${myCred[0]} OOM ========================================" >> /tmp/mem_alerts.rpt
-			echo "$cmdOut" >> /tmp/mem_alerts.rpt
-
-			(( memAlmCtr=memAlmCtr+1 ))
-			memAlmLst="$memAlmLst, $hostName"
-		fi
 
 	elif [[ "$OS_type" == "solaris"* ]]; then
-                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo fmadm faulty 2>/dev/null"`
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo /usr/sbin/fmadm faulty"`
                 if [ -n "$cmdOut" ] && [ -n "$cmdOut" ]; then
                         echo "# ${myCred[3]} ${myCred[0]} fdadm ========================================" >> /tmp/phy_alerts.rpt
                         echo "$cmdOut" >> /tmp/phy_alerts.rpt
@@ -120,6 +124,10 @@ while IFS=  read -r line; do
 			memAlmLst="$memAlmLst, $hostName"
 		fi
 
+		# fmstat -s -m cpumem-retire
+
+		# dladm show-link -s vnet0
+
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo iostat -zxn"`
 		if [ -n "$cmdOut" ]; then
 			echo "$cmdOut" | egrep -q '100%|9[0-9]%|[8][5-9]%'
@@ -147,7 +155,8 @@ while IFS=  read -r line; do
 				(( timeAlmCtr=timeAlmCtr+1 ))
 				timeAlmLst="$timeAlmLst, $hostName"
 			else
-				if (( $(echo "$offSet < -1.0" | bc -l) )) || (( $(echo "$offSet > 1.0" | bc -l) )); then
+				# Max time difference allowed by a DB RAC node> 30 secs
+				if (( $(echo "${offSet//+} < -10.0" | bc -l) )) || (( $(echo "${offSet//+} > 10.0" | bc -l) )); then
 					echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
 					echo "$cmdOut" >> /tmp/time_alerts_$(date +%Y-%m-%d_%H).rpt
 
@@ -192,13 +201,58 @@ while IFS=  read -r line; do
 		if (( $(echo "$mInUse / $memSize > 80" | bc -l) )); then
 			echo "# ${myCred[3]} ${myCred[0]} svmon ========================================" >> /tmp/mem_alerts.rpt
 			echo "$cmdOut" >> /tmp/mem_alerts.rpt
-			echo "$cmdOut2" >> /tmp/mem_alerts.rpt
 
 			(( memAlmCtr=memAlmCtr+1 ))
 			memAlmLst="$memAlmLst, $hostName"
 		fi
 
+		# check the health of paging space
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "lsps -a"`
+		pgUse=`echo "$cmdOut" | tail -1 | awk '{ print $5 }'`
+                if (( $(echo "$pgUse > 80" | bc -l) )); then
+                        echo "# ${myCred[3]} ${myCred[0]} lsps  ========================================" >> /tmp/pg_alerts.rpt
+                        echo "$cmdOut" >> /tmp/pg_alerts.rpt
+
+                        (( pgAlmCtr=pgAlmCtr+1 ))
+                        pgAlmLst="$pgAlmLst, $hostName"
+                fi
+
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "iostat"`
+		wio=`echo "$cmdOut" | head -4 | tail -1 | awk '{ print $6 }'`
+                if (( $(echo "$wio > 25" | bc -l) )); then
+                        echo "$cmdOut" | egrep -q '100%|9[0-9]%|[8][5-9]%'
+
+                        if [ $? -eq 0 ]; then
+                                echo "# ${myCred[3]} ${myCred[0]} iostat ========================================" >> /tmp/io_alerts.rpt
+                                echo "$cmdOut" | egrep '100%|9[0-9]%|[8][5-9]%' >> /tmp/io_alerts.rpt
+
+                                (( ioAlmCtr=ioAlmCtr+1 ))
+                                ioAlmLst="$ioAlmLst, $hostName"
+                        fi
+                fi
+
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'errpt -a | grep LABEL'`
+                if [ -n "$cmdOut" ]; then
+                        echo "# ${myCred[3]} ${myCred[0]} errpt ========================================" >> /tmp/phy_alerts.rpt
+                        echo "$cmdOut" >> /tmp/phy_alerts.rpt
+
+                        (( phyAlmCtr=phyAlmCtr+1 ))
+                        phyAlmLst="$phyAlmLst, $hostName"
+                fi
+
+
+		# lsvg -o | lsvg -il | grep -i stale
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'lsvg -o | lsvg -il | grep -i stale'`
+                if [ -n "$cmdOut" ]; then
+                        echo "# ${myCred[3]} ${myCred[0]} lsvg ========================================" >> /tmp/err_alerts.rpt
+                        echo "$cmdOut" >> /tmp/dsk_alerts.rpt
+
+                        (( dskAlmCtr=dskAlmCtr+1 ))
+                        dskAlmLst="$dskAlmLst, $hostName"
+                fi
+
 		#cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'lparstat -i |egrep -i "Online|Maximum" |grep -i Memory'`
+		#
 	fi
 done < $1
 
@@ -215,13 +269,15 @@ Total servers checked: $tS
 
 Unreachable: $naAlmCtr -- $naAlmLst
 Uptime alerts (OS reboot): $bootAlmCtr -- $bootAlmLst
-Physical alerts: $phyAlmCtr -- $phyAlmLst
-High CPU usage alerts: $cpuAlmCtr -- $cpuALmLst
+Physical/hw alerts: $phyAlmCtr -- $phyAlmLst
+High CPU usage alerts: $cpuAlmCtr -- $cpuAlmLst
 High mem usage alerts: $memAlmCtr -- $memAlmLst
 Low free disk space alerts: $dskAlmCtr -- $dskAlmLst
 I/O performance alerts: $ioAlmCtr -- $ioAlmLst
 Time sync alerts: $timeAlmCtr -- $timeAlmLst
 VM (LDOM/LPAR) status alerts: $vmAlmCtr -- $vmAlmLst
+Page usage alerts: $pgAlmCtr -- $pgAlmLst
+System/kernel errors: $errAlmCtr -- $errAlmLst
 
 More info: http://172.16.99.144/infra/$(date +%Y-%m-%d_%H)/
 EOM
