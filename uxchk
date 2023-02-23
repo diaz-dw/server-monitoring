@@ -15,6 +15,7 @@ date > /tmp/mem_alerts.rpt
 date > /tmp/dsk_alerts.rpt
 date > /tmp/io_alerts.rpt
 date > /tmp/time_alerts.rpt
+date > /tmp/proc_alerts.rpt
 date > /tmp/vm_alerts.rpt
 date > /tmp/pg_alerts.rpt
 date > /tmp/err_alerts.rpt 
@@ -36,7 +37,7 @@ while IFS=  read -r line; do
 	fi
 
 	echo "# ${myCred[3]} ${myCred[0]} ========================================"
-	OS_type=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'echo $OSTYPE'`
+	OS_type=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'uname'`
 	hostName=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'hostname'`
 
 
@@ -65,7 +66,7 @@ while IFS=  read -r line; do
 	fi
 
         # journalctl -p crit
-        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep 'kernel|crit|OOM|Out of memory|Killed process|segfault' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm'"`
+        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep -i 'kernel|crit|OOM-killer|Out of memory|Killed process|segfault|fork' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm'"`
         if [ -n "$cmdOut" ]; then
                  echo "# ${myCred[3]} ${myCred[0]} system logs ========================================" >> /tmp/err_alerts.rpt
                  echo "$cmdOut" >> /tmp/err_alerts.rpt
@@ -92,7 +93,7 @@ while IFS=  read -r line; do
 		fi
 
 
-	elif [[ "$OS_type" == "solaris"* ]]; then
+	elif [[ "$OS_type" == "SunOS"* ]]; then
                 cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo /usr/sbin/fmadm faulty"`
                 if [ -n "$cmdOut" ] && [ -n "$cmdOut" ]; then
                         echo "# ${myCred[3]} ${myCred[0]} fdadm ========================================" >> /tmp/phy_alerts.rpt
@@ -105,7 +106,6 @@ while IFS=  read -r line; do
 		# Adapted from: https://exchange.nagios.org/directory/Plugins/Operating-Systems/Solaris/check_solaris_cpu_usage/details
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} '/usr/bin/mpstat -a 3 2'`
 		idle=`echo "$cmdOut" | tail -1 | awk '{ print $16 }'`
-
 		if [ -n "$cmdOut" ] && [ "$idle" -le 15 ]; then
 			echo "# ${myCred[3]} ${myCred[0]} mpstat ========================================" >> /tmp/cpu_alerts.rpt
 			echo "$cmdOut" >> /tmp/cpu_alerts.rpt
@@ -182,7 +182,7 @@ while IFS=  read -r line; do
                 fi
 
 
-	elif [[ "$OS_type" == "aix"* ]]; then
+	elif [[ "$OS_type" == "AIX"* ]]; then
                 cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'errpt -a | grep LABEL'`
                 if [ -n "$cmdOut" ]; then
                         echo "# ${myCred[3]} ${myCred[0]} errpt ========================================" >> /tmp/phy_alerts.rpt
@@ -227,6 +227,17 @@ while IFS=  read -r line; do
                         (( pgAlmCtr=pgAlmCtr+1 ))
                         pgAlmLst="$hostName, $pgAlmLst"
                 fi
+
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "lsmpio"`
+		echo "$cmdOut" | tail -n +3 | grep -v Enabled
+		if [ $? -eq 0  ]; then
+			echo "# ${myCred[3]} ${myCred[0]} lsmpio  ========================================" >> /tmp/dsk_alerts.rpt
+			echo "$cmdOut" >> /tmp/dsk_alerts.rpt
+
+			(( dskAlmCtr=dskAlmCtr+1 ))
+			dskAlmLst="$hostName, $dskAlmLst"
+		fi
+
 
                 cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "iostat"`
 		wio=`echo "$cmdOut" | head -4 | tail -1 | awk '{ print $6 }'`
@@ -277,6 +288,17 @@ while IFS=  read -r line; do
                                 fi
                         fi
                 fi
+
+		# Process Monitor: Mandatory processes that should be alerted if not running
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "ps -afe | egrep 'syncd|errdemon|inetd|biod|cron|qdaemon|portmap|writesrv' | wc -l"`
+                if [ "$cmdOut" -ne 8 ]; then
+                        echo "# ${myCred[3]} ${myCred[0]} lsvg ========================================" >> /tmp/proc_alerts.rpt
+                        echo "$cmdOut" >> /tmp/proc_alerts.rpt
+
+                        (( procAlmCtr=procAlmCtr+1 ))
+                        procAlmLst="$hostName, $procAlmLst"
+                fi
+
 
 
 		#cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'lparstat -i |egrep -i "Online|Maximum" |grep -i Memory'`
