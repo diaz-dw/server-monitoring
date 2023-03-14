@@ -30,9 +30,9 @@ let naAlmCtr=bootAlmCtr=fmAlmCtr=sysAlmCtr=vmAlmCtr=cpuAlmCtr=memAlmCtr=dskAlmCt
 
 while IFS=  read -r line; do
 	myCred=( $line )
-	#echo  ${myCred[0]}
-	#echo  ${myCred[1]}
-	#echo  ${myCred[2]}
+	#echo  ${myCred[0]} ## Device name
+	#echo  ${myCred[1]} ## Username
+	#echo  ${myCred[2]} ## Password
 
 	nc -w 3 -z "${myCred[3]}" 22
 	if [ $? -ne 0  ]; then
@@ -45,10 +45,16 @@ while IFS=  read -r line; do
 	OSname=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'uname -a'`
 	[[ "$OSname" == *"hmc"* ]] && OSname='hmc' || OSname=`echo "$OSname" | awk '{ print $1 }'`
 
+        hostName=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'hostname'`
+        if [ -z $hostName ]; then
+		hostName=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'cat /etc/hostname'`
+	fi
+        if [ -z $hostName ]; then
+		hostName=${myCred[0]}
+	fi
+
+
 	if [ "$OSname" != "hmc" ]; then
-		hostName=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'hostname'`
-
-
 		# Common checks ######################################################################################################################
 		cmdOut=`sshpass -p "${myCred[2]}" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 "${myCred[1]}"@"${myCred[3]}" 'uptime'`
 		echo "$cmdOut" | grep up | grep -q day
@@ -297,8 +303,7 @@ while IFS=  read -r line; do
                         sysAlmLst="$hostName, $sysAlmLst"
                 fi
 
-                # see what IPs are assigned by the HMC
-                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "lssvcevents -t hardware -d 3 | grep -v 'No results'"`
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "lssvcevents -t hardware -d 3 --filter status=open | grep -v 'No results'"`
                 if [ -n "$cmdOut"  ]; then
                         echo "# ${myCred[3]} ${myCred[0]} lssvcevents ========================================" >> /tmp/$workDir/fm_alerts.rpt
                         echo "$cmdOut" >> /tmp/$workDir/fm_alerts.rpt
@@ -417,7 +422,7 @@ while IFS=  read -r line; do
 
 		# Process Monitor: Mandatory processes that should be alerted if not running
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "ps -afe | egrep 'syncd|errdemon|inetd|biod|cron|qdaemon|portmap|writesrv'"`
-		retVal=`echo "$cmdOut" | wc -l`
+		retVal=`echo "$cmdOut" | grep -v grep | wc -l`
 		if [ "$retVal" -ne 8 ]; then
                         echo "# ${myCred[3]} ${myCred[0]} ps ========================================" >> /tmp/$workDir/proc_alerts.rpt
                         echo "$cmdOut" >> /tmp/$workDir/proc_alerts.rpt
@@ -447,9 +452,9 @@ Total devices checked: $tDev
 Unreachable: $naAlmCtr -- $naAlmLst
 Short uptime: $bootAlmCtr -- $bootAlmLst
 Hw event/fault/err: $fmAlmCtr -- $fmAlmLst
-HMC sys issues: $sysAlmCtr -- $sysAlmLst
+HMC recent sys events/issues: $sysAlmCtr -- $sysAlmLst
 LDdom/LPar not active/running: $vmAlmCtr -- $vmAlmLst
-High CPU/Entc (avg) usage: $cpuAlmCtr -- $cpuAlmLst
+High CPU/Entc usage (sys wide avg): $cpuAlmCtr -- $cpuAlmLst
 High mem usage: $memAlmCtr -- $memAlmLst
 Low free disk/vol/storage space: $dskAlmCtr -- $dskAlmLst
 High I/O wait: $ioAlmCtr -- $ioAlmLst
