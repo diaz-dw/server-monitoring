@@ -103,8 +103,8 @@ while IFS=  read -r line; do
 
 		# free -m
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'grep MemFree /proc/meminfo'`
-		retVal=`echo "$cmdOut" | awk '/MemFree/ { print $2 }'`
-		if [ "$retVal" -lt 1024 ]; then
+		tVal=`echo "$cmdOut" | awk '/MemFree/ { print $2 }'`
+		if [ "$tVal" -lt 1024 ]; then
                         echo "# ${myCred[3]} ${myCred[0]} meminfo ========================================" >> /tmp/$workDir/cpu_alerts.rpt
                         echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
                         (( memAlmCtr=memAlmCtr+1 ))
@@ -138,8 +138,8 @@ while IFS=  read -r line; do
 
 		# Memory capacity errors
                 cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'sudo /usr/sbin/fmstat -s -m cpumem-retire'`
-                retVal=`echo "$cmdOut" | wc -l`
-                if [ "$retVal" -gt 1 ]; then
+                tVal=`echo "$cmdOut" | wc -l`
+                if [ "$tVal" -gt 1 ]; then
                         echo "# ${myCred[3]} ${myCred[0]} vmstat ========================================" >> /tmp/$workDir/mem_alerts.rpt
                         echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
                         (( memAlmCtr=memAlmCtr+1 ))
@@ -159,8 +159,7 @@ while IFS=  read -r line; do
 		# RAM usage
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "echo '::memstat' | sudo mdb -k"`
 		echo "$cmdOut" | grep -E 'freelist|Free  ' | grep -q ' [0-9]%'
-		xStat=$?
-		if [ -n "$cmdOut" ] && [ $xStat -eq 0 ]; then
+		if [ $? -eq 0 ] && [ -n "$cmdOut" ]; then
 			echo "# ${myCred[3]} ${myCred[0]} mdb ========================================" >> /tmp/$workDir/mem_alerts.rpt
 			echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
 			(( memAlmCtr=memAlmCtr+1 ))
@@ -170,8 +169,7 @@ while IFS=  read -r line; do
 		# Storage device I/O utilization (%b), saturation (%w)
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo iostat -zxn"`
 		echo "$cmdOut" | egrep -q '100%|9[0-9]%|8[5-9]%'
-		xStat=$?
-		if [ -n "$cmdOut" ] && [ $xStat -eq 0 ]; then
+		if [ $? -eq 0 ] && [ -n "$cmdOut" ]; then
                 	echo "# ${myCred[3]} ${myCred[0]} iostat ========================================" >> /tmp/$workDir/io_alerts.rpt
 	                echo "$cmdOut" | egrep '100%|9[0-9]%|8[5-9]%' >> /tmp/$workDir/io_alerts.rpt
 
@@ -232,10 +230,9 @@ while IFS=  read -r line; do
                 fi
 
 
-                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'sudo ldm list 2> /dev/null'`
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'sudo ldm list 2>/dev/null'`
                 echo "$cmdOut" | egrep -qv 'STATE|active'
-                xStat=$?
-                if [ -n "$cmdOut" ] && [ $xStat -eq 0 ]; then
+                if [ $? -eq 0 ] && [ -n "$cmdOut" ]; then
                         echo "# ${myCred[3]} ${myCred[0]} ldm ========================================" >> /tmp/$workDir/vm_alerts.rpt
                         echo "$cmdOut" >> /tmp/$workDir/vm_alerts.rpt
 
@@ -326,7 +323,7 @@ while IFS=  read -r line; do
 
 		#cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sar -u 1 10"`
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'sar -u -P ALL 1 5'`
-		usrSysEntc=`echo "$cmdOut" | tail -1 | awk '{ print $2" "$3" "$7 }' | egrep '100|[89][0-9]'`
+		usrSysEntc=`echo "$cmdOut" | tail -1 | awk '{ print $2" "$3" "$7 }' | egrep '100|9[0-9]|8[6-9]'`
 		wio=`echo "$cmdOut" | tail -1 | awk '{ print $4 }' | egrep '2[5-9]|[3-9][0-9]|100'`
 		if [ -n "$usrSysEntc"  ] || [ -n "$wio"  ]; then
 			echo "# ${myCred[3]} ${myCred[0]} sar ========================================" >> /tmp/$workDir/cpu_alerts.rpt
@@ -422,8 +419,8 @@ while IFS=  read -r line; do
 
 		# Process Monitor: Mandatory processes that should be alerted if not running
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "ps -afe | egrep 'syncd|errdemon|inetd|biod|cron|qdaemon|portmap|writesrv'"`
-		retVal=`echo "$cmdOut" | grep -v grep | wc -l`
-		if [ "$retVal" -ne 8 ]; then
+		tVal=`echo "$cmdOut" | grep -v grep | wc -l`
+		if [ "$tVal" -ne 8 ]; then
                         echo "# ${myCred[3]} ${myCred[0]} ps ========================================" >> /tmp/$workDir/proc_alerts.rpt
                         echo "$cmdOut" >> /tmp/$workDir/proc_alerts.rpt
 
@@ -453,7 +450,7 @@ Unreachable: $naAlmCtr -- $naAlmLst
 Short uptime: $bootAlmCtr -- $bootAlmLst
 Hw event/fault/err: $fmAlmCtr -- $fmAlmLst
 HMC recent sys events/issues: $sysAlmCtr -- $sysAlmLst
-LDdom/LPar not active/running: $vmAlmCtr -- $vmAlmLst
+Has LDdom/LPar not active/running: $vmAlmCtr -- $vmAlmLst
 High CPU/Entc usage (sys wide avg): $cpuAlmCtr -- $cpuAlmLst
 High mem usage: $memAlmCtr -- $memAlmLst
 Low free disk/vol/storage space: $dskAlmCtr -- $dskAlmLst
