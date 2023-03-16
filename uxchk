@@ -1,5 +1,5 @@
 #!/bin/bash
-# douglas.diaz@bcr.gob.sv
+# diazdw @ g mail dot com
 # Feb-2023
 # Mar-2023
 
@@ -33,11 +33,13 @@ while IFS=  read -r line; do
 	#echo  ${myCred[0]} ## Device name
 	#echo  ${myCred[1]} ## Username
 	#echo  ${myCred[2]} ## Password
+	#echo  ${myCred[3]} ## IP addr
 
 	nc -w 3 -z "${myCred[3]}" 22
 	if [ $? -ne 0  ]; then
 		echo "${myCred[3]} ${myCred[0]} unreachable" >> /tmp/$workDir/na_alerts.rpt
 		(( naAlmCtr=naAlmCtr+1 ))
+		naAlmLst="${myCred[0]}, $naAlmLst"
 		continue
 	fi
 
@@ -45,11 +47,11 @@ while IFS=  read -r line; do
 	OSname=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'uname -a'`
 	[[ "$OSname" == *"hmc"* ]] && OSname='hmc' || OSname=`echo "$OSname" | awk '{ print $1 }'`
 
-        hostName=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'hostname'`
-        if [ -z $hostName ]; then
+        hostName=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'hostname 2>/dev/null'`
+        if [ -z "$hostName" ]; then
 		hostName=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'cat /etc/hostname'`
 	fi
-        if [ -z $hostName ]; then
+        if [ -z "$hostName" ]; then
 		hostName=${myCred[0]}
 	fi
 
@@ -165,6 +167,16 @@ while IFS=  read -r line; do
 			(( memAlmCtr=memAlmCtr+1 ))
 			memAlmLst="$hostName, $memAlmLst"
 		fi
+
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "swap -s"`
+                swapUsed=`echo "$cmdOut" | awk '{ print $9 }' | tr -d k`
+		swapFree=`echo "$cmdOut" | awk '{ print $11 }' | tr -d k`
+		if (( $(echo "$swapUsed / ($swapUsed + $swapFree) > 0.8" | bc -l) )); then
+                        echo "# ${myCred[3]} ${myCred[0]} swap ========================================" >> /tmp/$workDir/mem_alerts.rpt
+                        echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
+                        (( memAlmCtr=memAlmCtr+1 ))
+                        memAlmLst="$hostName, $memAlmLst"
+                fi
 
 		# Storage device I/O utilization (%b), saturation (%w)
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "sudo iostat -zxn"`
@@ -335,7 +347,7 @@ while IFS=  read -r line; do
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "svmon -G"`
 		memSize=`echo "$cmdOut" | grep memory | tr -s ' ' | cut -d ' ' -f 2`
 		mInUse=`echo "$cmdOut" | grep 'in use' | tr -s ' ' | cut -d ' ' -f 3`
-		if (( $(echo "$mInUse / $memSize > 80" | bc -l) )); then
+		if (( $(echo "$mInUse / $memSize > 0.8" | bc -l) )); then
 			echo "# ${myCred[3]} ${myCred[0]} svmon ========================================" >> /tmp/$workDir/mem_alerts.rpt
 			echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
 			(( memAlmCtr=memAlmCtr+1 ))
@@ -351,6 +363,17 @@ while IFS=  read -r line; do
                         (( pgAlmCtr=pgAlmCtr+1 ))
                         pgAlmLst="$hostName, $pgAlmLst"
                 fi
+
+                cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "swap -s"`
+                swapUsed=`echo "$cmdOut" | awk '{ print $7 }'`
+                swapFree=`echo "$cmdOut" | awk '{ print $11 }'`
+                if (( $(echo "$swapUsed / ($swapUsed + $swapFree) > 0.8" | bc -l) )); then
+                        echo "# ${myCred[3]} ${myCred[0]} swap ========================================" >> /tmp/$workDir/mem_alerts.rpt
+                        echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
+                        (( memAlmCtr=memAlmCtr+1 ))
+                        memAlmLst="$hostName, $memAlmLst"
+                fi
+
 
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "lsmpio"`
 		echo "$cmdOut" | tail -n +3 | grep -qv Enabled
