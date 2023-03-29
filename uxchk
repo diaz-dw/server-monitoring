@@ -114,6 +114,15 @@ while IFS=  read -r line; do
 
 		fi
 
+                cmdOut=`sshpass -p "${myCred[2]}" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 "${myCred[1]}"@"${myCred[3]}" 'df -i'`
+                echo "$cmdOut" | grep -Ev 'loop|snap|docker|media' | grep -Eq '100%|9[0-9]%|[8][6-9]%'
+                if [ $? -eq 0 ] && [ -n "$cmdOut" ]; then
+                        echo "# ${myCred[3]} ${myCred[0]} df ========================================" >> /tmp/$workDir/dsk_alerts.rpt
+                        echo "$cmdOut" >> /tmp/$workDir/dsk_alerts.rpt
+                        (( dskAlmCtr=dskAlmCtr+1 ))
+                        dskAlmLst="$hostName, $dskAlmLst"
+                fi
+
 
 	# Mostly based on https://www.brendangregg.com/USEmethod/use-solaris.html
 	elif [[ "$OSname" == "SunOS"* ]]; then
@@ -171,11 +180,11 @@ while IFS=  read -r line; do
                 cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "swap -s"`
                 swapUsed=`echo "$cmdOut" | awk '{ print $9 }' | tr -d k`
 		swapFree=`echo "$cmdOut" | awk '{ print $11 }' | tr -d k`
-		if (( $(echo "$swapUsed / ($swapUsed + $swapFree) > 0.8" | bc -l) )); then
-                        echo "# ${myCred[3]} ${myCred[0]} swap ========================================" >> /tmp/$workDir/mem_alerts.rpt
-                        echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
-                        (( memAlmCtr=memAlmCtr+1 ))
-                        memAlmLst="$hostName, $memAlmLst"
+		if (( $(echo "$swapUsed / ($swapUsed + $swapFree) > 0.75" | bc -l) )); then
+                        echo "# ${myCred[3]} ${myCred[0]} swap ========================================" >> /tmp/$workDir/pg_alerts.rpt
+                        echo "$cmdOut" >> /tmp/$workDir/pg_alerts.rpt
+                        (( pgAlmCtr=pgAlmCtr+1 ))
+                        pgAlmLst="$hostName, $pgAlmLst"
                 fi
 
 		# Storage device I/O utilization (%b), saturation (%w)
@@ -367,11 +376,11 @@ while IFS=  read -r line; do
                 cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "swap -s"`
                 swapUsed=`echo "$cmdOut" | awk '{ print $7 }'`
                 swapFree=`echo "$cmdOut" | awk '{ print $11 }'`
-                if (( $(echo "$swapUsed / ($swapUsed + $swapFree) > 0.8" | bc -l) )); then
-                        echo "# ${myCred[3]} ${myCred[0]} swap ========================================" >> /tmp/$workDir/mem_alerts.rpt
-                        echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
-                        (( memAlmCtr=memAlmCtr+1 ))
-                        memAlmLst="$hostName, $memAlmLst"
+                if (( $(echo "$swapUsed / ($swapUsed + $swapFree) > 0.75" | bc -l) )); then
+                        echo "# ${myCred[3]} ${myCred[0]} swap ========================================" >> /tmp/$workDir/pg_alerts.rpt
+                        echo "$cmdOut" >> /tmp/$workDir/pg_alerts.rpt
+                        (( pgAlmCtr=pgAlmCtr+1 ))
+                        pgAlmLst="$hostName, $pgAlmLst"
                 fi
 
 
