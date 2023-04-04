@@ -26,7 +26,7 @@ date > /tmp/$workDir/pg_alerts.rpt
 date > /tmp/$workDir/err_alerts.rpt 
 
 tDev=`wc -l < $1`
-let naAlmCtr=bootAlmCtr=fmAlmCtr=sysAlmCtr=vmAlmCtr=cpuAlmCtr=memAlmCtr=dskAlmCtr=ioAlmCtr=netAlmCtr=ntpAlmCtr=procAlmCtr=pgAlmctr=msgAlmCtr=0
+let naAlmCtr=bootAlmCtr=fmAlmCtr=sysAlmCtr=vmAlmCtr=cpuAlmCtr=memAlmCtr=dskAlmCtr=ioAlmCtr=netAlmCtr=ntpAlmCtr=procAlmCtr=pgAlmCtr=noSwpAlmCtr=msgAlmCtr=0
 
 while IFS=  read -r line; do
 	myCred=( $line )
@@ -88,7 +88,7 @@ while IFS=  read -r line; do
 
 
 	# Specific check per OS type ####################################################################################################################
-	if [[ "$OSname" == "linux-gnu"* ]]; then
+	if [[ "${OSname,,}" =~ "linux" ]]; then
 		# freeipmi
 
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'top -b -n 1 | grep Cpu'`
@@ -104,7 +104,8 @@ while IFS=  read -r line; do
 		fi
 
 		# free -m
-		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'grep MemFree /proc/meminfo'`
+		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'cat /proc/meminfo'`
+
 		tVal=`echo "$cmdOut" | awk '/MemFree/ { print $2 }'`
 		if [ "$tVal" -lt 1024 ]; then
                         echo "# ${myCred[3]} ${myCred[0]} meminfo ========================================" >> /tmp/$workDir/cpu_alerts.rpt
@@ -113,6 +114,21 @@ while IFS=  read -r line; do
                         memAlmLst="$hostName, $memAlmLst"
 
 		fi
+
+		swapTotal=`echo "$cmdOut" | awk '/SwapTotal/ { print $2 }'`
+		if [ "$swapTotal" -eq 0 ]; then
+			(( noSwpAlmCtr=noSwpAlmCtr+1 ))
+			noSwpAlmLst="$hostName, $noSwpAlmLst"
+		else
+			swapFree=`echo "$cmdOut" | awk '/SwapFree/ { print $2 }'`
+        	        if (( $(echo "1 - $swapFree / $swapTotal > 0.5" | bc -l) )); then
+                	        echo "# ${myCred[3]} ${myCred[0]} swap ========================================" >> /tmp/$workDir/pg_alerts.rpt
+                        	echo "$cmdOut" >> /tmp/$workDir/pg_alerts.rpt
+	                        (( pgAlmCtr=pgAlmCtr+1 ))
+        	                pgAlmLst="$hostName, $pgAlmLst"
+	                fi
+		fi
+
 
                 cmdOut=`sshpass -p "${myCred[2]}" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 "${myCred[1]}"@"${myCred[3]}" 'df -i'`
                 echo "$cmdOut" | grep -Ev 'loop|snap|docker|media' | grep -Eq '100%|9[0-9]%|[8][6-9]%'
@@ -491,6 +507,7 @@ Net packets dropped: $netAlmCtr -- $netAlmLst
 NTP/time issues: $ntpAlmCtr -- $ntpAlmLst
 AIX vital proc not running: $procAlmCtr -- $procAlmLst
 High paging usage: $pgAlmCtr -- $pgAlmLst
+No swap setup: $noSwpAlmCtr -- $noSwpAlmLst
 Sys/kernel messages logged: $msgAlmCtr -- $msgAlmLst
 
 More info: http://172.16.99.144/infra/$(date +%Y-%m-%d_%H)/
