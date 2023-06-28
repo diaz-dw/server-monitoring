@@ -1,0 +1,42 @@
+#!/bin/bash
+# douglas.diaz@
+# Mar-2023
+
+declare -ir TC=1 # Total containers
+readonly NMS=172.16.99.144
+readonly HOSTNAME=`hostname`
+readonly CURL_PARAMS="-G --connect-timeout 5 --retry 3"
+
+
+cmdout=`docker ps -a | fgrep -vc COMMAND`
+if [ "$cmdout" -lt $TC ]; then
+	MSG="LBTR $HOSTNAME --> $cmdout de $TC contenedor(es) de encontraron en ejecucion."
+fi
+
+cmdout=`docker ps -a | fgrep -c Up`
+if [ "$cmdout" -lt $TC ]; then
+	MSG="LBTR $HOSTNAME --> $cmdout de $TC contenedor(es) se encontraron en estado Up."
+	DAT=`docker ps -a --format '{{.Names}}  {{.Status}}' | grep -v Up`
+fi
+
+cmdout=`docker ps -a | fgrep -c nhealthy`
+if [ "$cmdout" -gt 0 ]; then
+	MSG="LBTR $HOSTNAME --> $cmdout de $TC contenedores se encontraron en estado Unhealthy."
+fi
+
+
+for i in $(docker ps -a --format '{{.Names}}')
+do
+	currCnt=$(</tmp/.$i.cnt)
+	cmdout=`docker logs $i 2>&1 | egrep -c 'ERROR|xception|ORA' | tee /tmp/.$i.cnt`
+	if [ "$cmdout" -ne "$currCnt" ]; then
+		MSG="LBTR $HOSTNAME -- ERROR encontrado en log del contenedor $i @ $(date +%F_%T)"
+		DAT=`docker logs $i | egrep 'ERROR|xception|ORA' | tail -3`
+	fi
+done
+
+
+[ -z "$DAT" ] || $DAT='...'
+[ -z "$MSG" ] || curl $CURL_PARAMS --data-urlencode "from=$HOSTNAME" --data-urlencode "msg=$MSG" --data-urlencode "data=$DAT" "http://$NMS/tbot/tbot.php"
+
+exit 0
