@@ -77,7 +77,7 @@ while IFS=  read -r line; do
 		fi
 
         	# journalctl -p crit
-	        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep -i 'kernel|crit|OOM-killer|Out of memory|Killed process|segfault|fork' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm'"`
+	        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep -i 'kernel|crit|OOM-killer|Out of memory|Killed process|segfault|fork' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm|Log statistics'"`
         	if [ -n "$cmdOut" ]; then
                 	 echo "# ${myCred[3]} ${myCred[0]} system logs ========================================" >> /tmp/$workDir/err_alerts.rpt
 	                 echo "$cmdOut" >> /tmp/$workDir/err_alerts.rpt
@@ -185,8 +185,9 @@ while IFS=  read -r line; do
 
 		# RAM usage
 		cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "echo '::memstat' | sudo mdb -k"`
-		echo "$cmdOut" | grep -E 'freelist|Free  ' | grep -q ' [0-9]%'
-		if [ $? -eq 0 ] && [ -n "$cmdOut" ]; then
+		tVal=`echo "$cmdOut" | grep freelist | awk '{ gsub("%", ""); print $5 }'` # Solaris 11.3
+		[ -z "$tVal" ] && tVal=`echo "$cmdOut" | grep '^Free  ' | awk '{ gsub("%", ""); print $4 }'` # Solaris 11.4
+		if (( $(echo "$tVal < 15" | bc -l) )); then
 			echo "# ${myCred[3]} ${myCred[0]} mdb ========================================" >> /tmp/$workDir/mem_alerts.rpt
 			echo "$cmdOut" >> /tmp/$workDir/mem_alerts.rpt
 			(( memAlmCtr=memAlmCtr+1 ))
@@ -233,7 +234,7 @@ while IFS=  read -r line; do
 				ntpAlmLst="$hostName, $ntpAlmLst"
 			else
 				# Max time difference allowed by a DB RAC node> 30 secs
-				if (( $(echo "${offSet//+} < -10.0" | bc -l) )) || (( $(echo "${offSet//+} > 10.0" | bc -l) )); then
+				if (( $(echo "${offSet//+} < -100.0" | bc -l) )) || (( $(echo "${offSet//+} > 100.0" | bc -l) )); then
 					echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/$workDir/ntp_alerts.rpt
 					echo "$cmdOut" >> /tmp/$workDir/ntp_alerts.rpt
 
@@ -455,7 +456,7 @@ while IFS=  read -r line; do
                                 ntpAlmLst="$hostName, $ntpAlmLst"
                         else
                                 # Max time difference allowed by a DB RAC node> 30 secs
-                                if (( $(echo "${offSet//+} < -10.0" | bc -l) )) || (( $(echo "${offSet//+} > 10.0" | bc -l) )); then
+                                if (( $(echo "${offSet//+} < -100.0" | bc -l) )) || (( $(echo "${offSet//+} > 100.0" | bc -l) )); then
                                         echo "# ${myCred[3]} ${myCred[0]} ntpq ========================================" >> /tmp/$workDir/ntp_alerts.rpt
                                         echo "$cmdOut" >> /tmp/$workDir/ntp_alerts.rpt
 
