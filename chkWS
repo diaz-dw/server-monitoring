@@ -5,17 +5,31 @@
 
 readonly NMS=localhost
 readonly HOSTNAME=`hostname`
-readonly CURL_PARAMS="-G --connect-timeout 5 --retry 3"
+readonly CURL_PARAMS="-s -G --connect-timeout 5 --retry 3"
 
-for i in $(cat $1 | grep -v '#'); do
-	curl -s --head --connect-timeout 5 $i | grep "200 OK" > /dev/null
+while IFS=  read -r line; do
+	myServer=( $line )
 
-	if [ $? -ne 0 ];then
-		MSG="The WS at $i did not respond in the time expected @renlo1 @ $(date)"
+	echo "$myServer" | grep -q '#' && continue
+	[ -z "${myServer[0]}" ] && continue
+
+	echo -n "${myServer[1]} -- "
+
+	respHead=`curl -s --head --connect-timeout 5 ${myServer[1]}`
+	respCode=`echo "$respHead" | head -1`
+
+	echo "$respCode"
+
+	echo "$respCode" | grep -q '200 OK'
+	if [ $? -ne 0 ]; then
+		myMsg="Service availability test timed out or got unexpected response @ $(date)"
+		myData="${myServer[1]} -- $respCode"
 	fi
 
-	[ -z "$DAT" ] || $DAT='...'
-	[ -z "$MSG" ] || curl $CURL_PARAMS --data-urlencode "from=$HOSTNAME" --data-urlencode "msg=$MSG" --data-urlencode "data=$DAT" "http://$NMS/tbot/tbot.php"
-	#echo $MSG
-	unset MSG
-done
+	[ -z "$myMsg" ] || curl $CURL_PARAMS --data-urlencode "from=${myServer[0]}" --data-urlencode "msg=$myMsg" --data-urlencode "data=$myData" "http://$NMS/tbot/tbot.php"
+	#echo $myMsg
+        #echo $myData
+
+	unset myMsg
+	unset myData
+done < $1 # Input file format: tsv (hostname, WS URL)
