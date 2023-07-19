@@ -1,0 +1,41 @@
+#!/bin/bash
+# (c) douglas.diaz@...
+
+[ -z "$1" ] && exit 1
+
+
+readonly NMS=localhost
+readonly HOSTNAME=`hostname`
+readonly CURL_PARAMS="-s -G --connect-timeout 5 --retry 3"
+
+if [ ! -f ~/MonUptime.db ]; then
+	sqlite3 MonUptime.db 'CREATE TABLE ServerUptime(host_name varchar(253) primary key, time_ticks bigint unsigned not null default 0);'
+fi
+
+while IFS=  read -r line; do
+	myServer=( $line )
+	[ -z "${myServer[0]}" ] && continue
+	echo -n "${myServer[1]}: " # Host name
+
+	oldTimeticks=`sqlite3 MonUptime.db "SELECT time_ticks FROM ServerUptime WHERE host_name = '${myServer[0]}'"`
+
+	sysUpTimeInstance=`snmpwalk -v1 -c public ${myServer[0]} 1.3.6.1.2.1.1.3 2>/dev/null`
+	if [ $? -eq 0 ]; then
+		nowTimeticks=`echo $sysUpTimeInstance | awk '{ print $4 }' | tr -d '(' | tr -d ')'`
+		echo $nowTimeticks
+
+		if [ -n "$oldTimeticks" ]; then
+			if [ "$nowTimeticks" -le "$oldTimeticks" ] ; then
+			        curl $CURL_PARAMS --data-urlencode "from=${myServer[1]}" --data-urlencode 'msg=Time ticks went backwards -- Server OS/service rebooted/restarted!' "http://$NMS/tbot/tbot.php"
+			fi
+		fi
+
+		sqlite3 MonUptime.db "INSERT OR REPLACE INTO ServerUptime (host_name, time_ticks) VALUES ('${myServer[1]}', $nowTimeticks)"
+	else
+		echo "No response: Device unreachabe, offline, load avg too high or down."
+		if [ -n "$oldTimeticks" ]; then
+			curl $CURL_PARAMS --data-urlencode "from=${myServer[1]}" --data-urlencode 'msg=Unable to get fresh sysUpTime, no response: Device unreachabe, offline, load avg toohigh or down!' "http://$NMS/tbot/tbot.php"
+			#echo -n
+		fi
+	fi
+done < $1 # Input file format: tsv (ip_addr, host_name)
