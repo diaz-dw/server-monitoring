@@ -32,7 +32,7 @@ let naAlmCtr=bootAlmCtr=fmAlmCtr=sysAlmCtr=vmAlmCtr=cpuAlmCtr=memAlmCtr=dskAlmCt
 
 while IFS=  read -r line; do
 	myCred=( $line )
-	#echo  ${myCred[0]} ## Device name
+	hostName=${myCred[0]} ## Device name
 	#echo  ${myCred[1]} ## Username
 	#echo  ${myCred[2]} ## Password
 	#echo  ${myCred[3]} ## IP addr
@@ -45,6 +45,21 @@ while IFS=  read -r line; do
 		continue
 	fi
 
+	CLIstr=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'echo $cli_string'`
+	if [[ "$CLIstr" == "IBM_"* ]]; then
+		cmdOut=`sshpass -p "${myCred[2]}" ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 "${myCred[1]}"@"${myCred[3]}" 'finderr'`
+		echo "$cmdOut" | grep -qv 'There are no unfixed errors'
+		if [ $? -eq 0 ]; then
+                	echo "# ${myCred[3]} ${myCred[0]} finderr ========================================" >> /tmp/$workDir/fm_alerts.rpt
+                        echo "$cmdOut" >> /tmp/$workDir/fm_alerts.rpt
+                        (( fmAlmCtr=fmAlmCtr+1 ))
+                        fmAlmLst="$hostName, $fmAlmLst"
+		fi
+
+		continue
+	fi
+
+	# echo $OSTYPE
 	OSname=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} 'uname -a'`
 	[[ "$OSname" == *"hmc"* ]] && OSname='hmc' || OSname=`echo "$OSname" | awk '{ print $1 }'`
 	echo "# ${myCred[3]} ${myCred[0]} = $OSname ###########################"
@@ -81,7 +96,7 @@ while IFS=  read -r line; do
         	# journalctl -p crit
 		# https://support.lenovo.com/sv/th/solutions/ht509717-the-esxi-shell-commands-and-log-files-needed-to-troubleshoot-network-issues-in-thinkagile-vx
 		# https://support.purestorage.com/Solutions/VMware_Platform_Guide/Troubleshooting_for_VMware_Solutions/General_Troubleshooting_KBs/VMware_vSphere%3A_ESXi_Host_Troubleshooting
-	        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep -i 'kernel|crit|OOM-killer|Out of memory|Killed process|segfault|fork|temperature|shutdown|service-required|powered down' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog /var/log/vmkernel.log /var/log/vmkwarning.log 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm|Log statistics|Reached target Shutdown'"`
+	        cmdOut=`sshpass -p ${myCred[2]} ssh -n -o StrictHostKeyChecking=no -o ConnectTimeout=3 ${myCred[1]}@${myCred[3]} "egrep -i 'kernel|crit|OOM-killer|Out of memory|Killed process|segfault|fork|temperature|shutdown|service-required|powered down' /var/log/syslog /var/log/messages /var/adm/messages /var/adm/ras/errlog /var/log/vmkernel.log /var/log/vmkwarning.log 2>/dev/null | egrep -v 'sendmail|UFW|named|audit|loop|kex alg|key exchange algorithm|Log statistics|Reached target Shutdown|maps to vmkernel opID'"`
         	if [ -n "$cmdOut" ]; then
                 	 echo "# ${myCred[3]} ${myCred[0]} system logs ========================================" >> /tmp/$workDir/msg_alerts.rpt
 	                 echo "$cmdOut" >> /tmp/$workDir/msg_alerts.rpt
