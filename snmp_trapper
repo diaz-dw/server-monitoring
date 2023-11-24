@@ -1,0 +1,27 @@
+#!/bin/sh
+# (c) douglas.diaz@bcr.gob.sv
+# Nov-2023
+
+read host
+read ip
+vars=
+count=1
+
+while read oid val
+do
+count=$[count+1]
+  if [ "$vars" = "" ]
+  then
+    vars="$oid = $val"
+  else
+    vars="$vars, $oid = $val"
+  fi
+done
+
+echo a $1 trap from host=$host at IP $ip vars=$vars>>/var/log/snmptraps.log
+
+if [ "$1" = "AIX" ]; then
+	/opt/NMS/tbot "$host" "AIX alert -- $vars"
+else
+	/opt/NMS/tbot "$host" "Got SNMP trap -- $vars"
+fi
